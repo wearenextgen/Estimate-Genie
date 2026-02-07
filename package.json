@@ -1,0 +1,22 @@
+{
+  "name": "estimate-genie",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "font:search": "node scripts/font-cli.js search",
+    "font:install": "node scripts/font-cli.js install",
+    "font:install-system": "node scripts/font-cli.js install-system"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "fontkit": "^2.0.4",
+    "multer": "^1.4.5-lts.1",
+    "pdfjs-dist": "^4.6.82",
+    "pdfkit": "^0.15.0"
+  }
+}

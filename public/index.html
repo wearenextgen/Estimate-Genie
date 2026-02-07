@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Estimate Genie</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <h1>Estimate Genie</h1>
+        <p>Upload up to 10 estimate PDFs, analyze exact style signals, install matching fonts, and generate a new branded estimate as HTML + PDF.</p>
+      </header>
+
+      <section class="panel">
+        <h2>Font Tools</h2>
+        <div class="font-grid">
+          <input id="font-query" type="text" placeholder="Search font family (e.g. Montserrat)" />
+          <button id="font-search-btn" type="button">Search Fonts</button>
+          <input id="font-family" type="text" placeholder="Install font family (e.g. Montserrat)" />
+          <button id="font-install-btn" type="button">Install + Verify</button>
+        </div>
+        <pre id="font-output">No font actions yet.</pre>
+      </section>
+
+      <section class="panel">
+        <h2>Generate Estimate</h2>
+        <form id="gen-form">
+          <label class="field">
+            <span>Historical estimate PDFs (1-10)</span>
+            <input id="pdfs" name="pdfs" type="file" accept="application/pdf" multiple required />
+          </label>
+
+          <label class="field">
+            <span>Logo (optional)</span>
+            <input id="logo" name="logo" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" />
+          </label>
+
+          <label class="field">
+            <span>New client request</span>
+            <textarea id="prompt" name="prompt" rows="8" placeholder="Describe scope, deliverables, timeline, and pricing expectations." required></textarea>
+          </label>
+
+          <button id="generate-btn" type="submit">Generate Estimate</button>
+        </form>
+        <p id="status" class="status"></p>
+      </section>
+
+      <section class="panel split">
+        <div>
+          <h2>Learned Style (Fonts + Hex Colors)</h2>
+          <pre id="style-profile">No analysis yet.</pre>
+        </div>
+        <div>
+          <h2>Output</h2>
+          <div class="actions">
+            <button id="download-html" disabled>Download HTML</button>
+            <button id="download-pdf" disabled>Download PDF</button>
+          </div>
+          <iframe id="preview" title="Estimate Preview"></iframe>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
