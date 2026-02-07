@@ -314,7 +314,10 @@ process.on("unhandledRejection", (error) => {
 
 process.on("uncaughtException", (error) => {
   console.error("Uncaught exception:", error);
-  process.exit(1);
+  // Don't exit in serverless - let Vercel handle it
+  if (!process.env.VERCEL) {
+    process.exit(1);
+  }
 });
 
 // Start server (only if not in serverless environment like Vercel)
