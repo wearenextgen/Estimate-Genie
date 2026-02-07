@@ -99,13 +99,23 @@ form.addEventListener("submit", async (event) => {
   formData.append("prompt", promptInput.value.trim());
 
   try {
+    setStatus("Uploading files and analyzing PDFs...");
     const response = await fetch("/api/generate", {
       method: "POST",
       body: formData
     });
 
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Request failed.");
+    if (!response.ok) {
+      let errorMsg = data.error || "Request failed.";
+      if (data.errors && Array.isArray(data.errors) && data.errors.length > 0) {
+        errorMsg += ` (${data.errors.length} file(s) failed to analyze)`;
+      }
+      if (data.analysisErrors && Array.isArray(data.analysisErrors) && data.analysisErrors.length > 0) {
+        errorMsg += ` (${data.analysisErrors.length} file(s) had errors)`;
+      }
+      throw new Error(errorMsg);
+    }
 
     styleEl.textContent = JSON.stringify(data.styleProfile, null, 2);
     preview.srcdoc = data.html;
@@ -117,9 +127,17 @@ form.addEventListener("submit", async (event) => {
     downloadHtmlBtn.disabled = false;
     downloadPdfBtn.disabled = false;
 
-    const engine = data.llmConfigured ? "local model" : "fallback template";
-    setStatus(`Generated successfully using ${engine}. PDF font: ${data.pdfFont}.`);
+    const engine = data.llmConfigured ? "AI model" : "template";
+    let statusMsg = `Generated successfully using ${engine}. PDF font: ${data.pdfFont}.`;
+    if (data.filesAnalyzed) {
+      statusMsg += ` Analyzed ${data.filesAnalyzed} PDF(s).`;
+    }
+    if (data.analysisErrors && data.analysisErrors.length > 0) {
+      statusMsg += ` (${data.analysisErrors.length} file(s) had errors but generation continued)`;
+    }
+    setStatus(statusMsg);
   } catch (error) {
+    console.error("Generation error:", error);
     setStatus(error.message || "Unable to generate estimate.", true);
   } finally {
     generateBtn.disabled = false;

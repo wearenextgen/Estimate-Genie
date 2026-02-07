@@ -98,19 +98,60 @@ app.post("/api/analyze", upload.array("pdfs", 10), async (req, res) => {
   const savedPaths = files.map((f) => f.path);
 
   try {
+    // Validate file types
     const nonPdf = files.find((f) => path.extname(f.originalname || "").toLowerCase() !== ".pdf");
-    if (nonPdf) return res.status(400).json({ error: `File ${nonPdf.originalname} is not a PDF.` });
+    if (nonPdf) {
+      await cleanup(savedPaths);
+      return res.status(400).json({ error: `File ${nonPdf.originalname} is not a PDF.` });
+    }
+
+    // Validate file sizes (basic check)
+    for (const file of files) {
+      try {
+        const stats = await fs.stat(file.path);
+        if (stats.size === 0) {
+          await cleanup(savedPaths);
+          return res.status(400).json({ error: `File ${file.originalname} is empty.` });
+        }
+        if (stats.size > 20 * 1024 * 1024) {
+          await cleanup(savedPaths);
+          return res.status(400).json({ error: `File ${file.originalname} exceeds 20MB limit.` });
+        }
+      } catch (statError) {
+        console.warn(`Could not stat file ${file.originalname}:`, statError.message);
+      }
+    }
 
     const profiles = [];
+    const errors = [];
+
+    // Process files with individual error handling
     for (const file of files) {
-      const profile = await analyzePdf(file.path);
-      profiles.push({ filename: file.originalname, ...profile });
+      try {
+        const profile = await analyzePdf(file.path);
+        profiles.push({ filename: file.originalname, ...profile });
+      } catch (error) {
+        console.error(`Error analyzing ${file.originalname}:`, error.message);
+        errors.push({
+          filename: file.originalname,
+          error: error.message || "Failed to analyze PDF"
+        });
+      }
+    }
+
+    if (profiles.length === 0) {
+      await cleanup(savedPaths);
+      return res.status(400).json({ 
+        error: "Failed to analyze any PDFs. Please ensure files are valid PDFs.",
+        errors
+      });
     }
 
     const mergedProfile = mergeProfiles(profiles);
     return res.json({
       styleProfile: mergedProfile,
       filesAnalyzed: profiles.length,
+      filesFailed: errors.length,
       perFile: profiles.map((p) => ({
         filename: p.filename,
         pages: p.pages,
@@ -118,10 +159,15 @@ app.post("/api/analyze", upload.array("pdfs", 10), async (req, res) => {
         headingSize: p.sizes.heading,
         bodySize: p.sizes.body,
         colors: p.colors
-      }))
+      })),
+      ...(errors.length > 0 ? { errors } : {})
     });
   } catch (error) {
-    return res.status(500).json({ error: error?.message || "Failed to analyze PDFs." });
+    console.error("Analysis error:", error);
+    return res.status(500).json({ 
+      error: error?.message || "Failed to analyze PDFs.",
+      details: process.env.NODE_ENV === "development" ? error.stack : undefined
+    });
   } finally {
     await cleanup(savedPaths);
   }
@@ -138,41 +184,101 @@ app.post(
     if (!pdfs.length) return res.status(400).json({ error: "Upload at least one PDF." });
 
     const prompt = String(req.body.prompt || "").trim();
-    if (!prompt) return res.status(400).json({ error: "Prompt is required." });
+    if (!prompt) {
+      const savedPaths = pdfs.map((f) => f.path);
+      await cleanup(savedPaths);
+      return res.status(400).json({ error: "Prompt is required." });
+    }
 
     const savedPaths = pdfs.map((f) => f.path);
+    const logoFile = req.files?.logo?.[0] || null;
 
     try {
-      const profiles = [];
-      for (const file of pdfs) {
-        const profile = await analyzePdf(file.path);
-        profiles.push(profile);
+      // Validate PDFs
+      const nonPdf = pdfs.find((f) => path.extname(f.originalname || "").toLowerCase() !== ".pdf");
+      if (nonPdf) {
+        await cleanup(savedPaths);
+        if (logoFile) await cleanup([logoFile.path]);
+        return res.status(400).json({ error: `File ${nonPdf.originalname} is not a PDF.` });
       }
+
+      // Analyze PDFs with error handling
+      const profiles = [];
+      const errors = [];
+      
+      for (const file of pdfs) {
+        try {
+          const profile = await analyzePdf(file.path);
+          profiles.push(profile);
+        } catch (error) {
+          console.error(`Error analyzing ${file.originalname}:`, error.message);
+          errors.push({
+            filename: file.originalname,
+            error: error.message || "Failed to analyze PDF"
+          });
+        }
+      }
+
+      if (profiles.length === 0) {
+        await cleanup(savedPaths);
+        if (logoFile) await cleanup([logoFile.path]);
+        return res.status(400).json({ 
+          error: "Failed to analyze any PDFs. Please ensure files are valid PDFs.",
+          errors
+        });
+      }
+
       const merged = mergeProfiles(profiles);
 
-      const logoFile = req.files?.logo?.[0] || null;
+      // Handle logo
       let logoDataUri = null;
       let logoBuffer = null;
       if (logoFile) {
-        logoBuffer = await fs.readFile(logoFile.path);
-        logoDataUri = toDataUri(logoFile, logoBuffer);
+        try {
+          logoBuffer = await fs.readFile(logoFile.path);
+          logoDataUri = toDataUri(logoFile, logoBuffer);
+        } catch (error) {
+          console.warn("Logo processing error:", error.message);
+          // Continue without logo
+        }
       }
 
-      const content = await buildEstimateContent({
-        prompt,
-        styleProfile: merged,
-        sourceText: merged.sampleText || ""
-      });
+      // Generate content
+      let content;
+      try {
+        content = await buildEstimateContent({
+          prompt,
+          styleProfile: merged,
+          sourceText: merged.sampleText || ""
+        });
+      } catch (error) {
+        console.error("Content generation error:", error.message);
+        throw new Error(`Failed to generate content: ${error.message}`);
+      }
 
-      const html = renderEstimateHtml({ content, styleProfile: merged, logoDataUri });
+      // Generate HTML
+      let html;
+      try {
+        html = renderEstimateHtml({ content, styleProfile: merged, logoDataUri });
+      } catch (error) {
+        console.error("HTML generation error:", error.message);
+        throw new Error(`Failed to generate HTML: ${error.message}`);
+      }
 
+      // Find font and generate PDF
       const fontPath = await findInstalledFontPath(merged.primaryFont);
-      const pdfBuffer = await renderEstimatePdf({
-        content,
-        styleProfile: merged,
-        fontPath,
-        logoBuffer
-      });
+      let pdfBuffer;
+      try {
+        pdfBuffer = await renderEstimatePdf({
+          content,
+          styleProfile: merged,
+          fontPath,
+          logoBuffer
+        });
+      } catch (error) {
+        console.error("PDF generation error:", error.message);
+        throw new Error(`Failed to generate PDF: ${error.message}`);
+      }
 
       return res.json({
         styleProfile: merged,
@@ -181,17 +287,41 @@ app.post(
         pdfBase64: pdfBuffer.toString("base64"),
         pdfFileName: "estimate.pdf",
         llmConfigured: Boolean(process.env.LLM_BASE_URL && process.env.LLM_MODEL),
-        pdfFont: fontPath || "Helvetica"
+        pdfFont: fontPath || "Helvetica",
+        filesAnalyzed: profiles.length,
+        ...(errors.length > 0 ? { analysisErrors: errors } : {})
       });
     } catch (error) {
-      return res.status(500).json({ error: error?.message || "Failed to generate estimate." });
+      console.error("Generation error:", error);
+      return res.status(500).json({ 
+        error: error?.message || "Failed to generate estimate.",
+        details: process.env.NODE_ENV === "development" ? error.stack : undefined
+      });
     } finally {
-      const logoPath = req.files?.logo?.[0]?.path;
+      const logoPath = logoFile?.path;
       await cleanup(logoPath ? [...savedPaths, logoPath] : savedPaths);
     }
   }
 );
 
+// Error handling for unhandled rejections
+process.on("unhandledRejection", (error) => {
+  console.error("Unhandled promise rejection:", error);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught exception:", error);
+  process.exit(1);
+});
+
+// Start server
 app.listen(port, () => {
   console.log(`Estimate Genie running on http://localhost:${port}`);
+}).on("error", (error) => {
+  if (error.code === "EADDRINUSE") {
+    console.error(`Port ${port} is already in use. Please use a different port or stop the other process.`);
+  } else {
+    console.error("Server error:", error);
+  }
+  process.exit(1);
 });
