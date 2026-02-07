@@ -14,7 +14,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const uploadsDir = path.join(__dirname, "uploads");
 
-await fs.mkdir(uploadsDir, { recursive: true });
+// Create uploads directory (async, but don't block serverless startup)
+fs.mkdir(uploadsDir, { recursive: true }).catch((err) => {
+  console.warn("Could not create uploads directory:", err.message);
+});
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
