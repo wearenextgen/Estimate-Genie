@@ -314,14 +314,19 @@ process.on("uncaughtException", (error) => {
   process.exit(1);
 });
 
-// Start server
-app.listen(port, () => {
-  console.log(`Estimate Genie running on http://localhost:${port}`);
-}).on("error", (error) => {
-  if (error.code === "EADDRINUSE") {
-    console.error(`Port ${port} is already in use. Please use a different port or stop the other process.`);
-  } else {
-    console.error("Server error:", error);
-  }
-  process.exit(1);
-});
+// Start server (only if not in serverless environment like Vercel)
+if (!process.env.VERCEL) {
+  app.listen(port, () => {
+    console.log(`Estimate Genie running on http://localhost:${port}`);
+  }).on("error", (error) => {
+    if (error.code === "EADDRINUSE") {
+      console.error(`Port ${port} is already in use. Please use a different port or stop the other process.`);
+    } else {
+      console.error("Server error:", error);
+    }
+    process.exit(1);
+  });
+}
+
+// Export for Vercel serverless
+export default app;
